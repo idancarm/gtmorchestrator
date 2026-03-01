@@ -1,20 +1,21 @@
 const { getStore } = require('@netlify/blobs');
 
 // Lazy-initialized stores (connectLambda must be called first in the function handler)
+// Using eventual consistency (propagates within 60s) - works without extra config
 function getActorsStore() {
-  return getStore({ name: 'actors', consistency: 'strong' });
+  return getStore('actors');
 }
 
 function getProtocolsStore() {
-  return getStore({ name: 'protocols', consistency: 'strong' });
+  return getStore('protocols');
 }
 
 function getTreatmentRunsStore() {
-  return getStore({ name: 'treatment-runs', consistency: 'strong' });
+  return getStore('treatment-runs');
 }
 
 function getQueueItemsStore() {
-  return getStore({ name: 'queue-items', consistency: 'strong' });
+  return getStore('queue-items');
 }
 
 module.exports = {
