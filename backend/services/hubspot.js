@@ -76,14 +76,15 @@ class HubSpotClient {
       `${HS_API_BASE}/crm/v3/lists`,
       {
         headers: this._headers(),
-        params: { count: 250, includeFilters: false },
+        params: { includeFilters: false },
       }
     );
-    return (response.data.lists || []).map(l => ({
-      listId: l.listId,
+    const lists = response.data.lists || response.data.results || [];
+    return lists.map(l => ({
+      listId: String(l.listId),
       name: l.name,
       type: l.processingType,
-      size: l.size,
+      size: l.size || 0,
     }));
   }
 
