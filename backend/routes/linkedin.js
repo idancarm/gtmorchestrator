@@ -1,6 +1,7 @@
 const express = require('express');
 const unipile = require('../services/unipile');
 const rateLimiter = require('../services/rate-limiter');
+const { getActorsStore } = require('../services/store');
 
 const router = express.Router();
 
@@ -13,22 +14,24 @@ function requireUnipile(req, res, next) {
 }
 
 // Middleware: extract and validate actorId + get Unipile account ID
-function requireActor(req, res, next) {
+async function requireActor(req, res, next) {
   const { actorId } = req.body;
   if (!actorId) {
     return res.status(400).json({ error: 'actorId is required' });
   }
 
-  // For now, use actorId directly as Unipile account ID
-  // In production, look up actor config to get unipileAccountId
-  const actorsRoute = require('./actors');
-  const actor = actorsRoute.getActor(actorId);
+  try {
+    const store = getActorsStore();
+    const actor = await store.get(actorId, { type: 'json' });
 
-  if (actor) {
-    req.unipileAccountId = actor.unipileAccountId;
-    req.actor = actor;
-  } else {
-    // Fallback: treat actorId as Unipile account ID directly
+    if (actor) {
+      req.unipileAccountId = actor.unipileAccountId;
+      req.actor = actor;
+    } else {
+      // Fallback: treat actorId as Unipile account ID directly
+      req.unipileAccountId = actorId;
+    }
+  } catch {
     req.unipileAccountId = actorId;
   }
 
