@@ -12,6 +12,20 @@ router.get('/templates', (req, res) => {
   res.json({ templates: PROTOCOL_TEMPLATES });
 });
 
+// GET /api/treatments/lists - List HubSpot lists/segments
+router.get('/lists', async (req, res) => {
+  try {
+    if (!hubspot.isConfigured()) {
+      return res.status(400).json({ error: 'HubSpot not configured' });
+    }
+    const lists = await hubspot.getLists();
+    res.json({ lists });
+  } catch (error) {
+    console.error('Get lists error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch lists', details: error.message });
+  }
+});
+
 // POST /api/treatments/create - Define a treatment protocol
 router.post('/create', async (req, res) => {
   const { name, actorId, steps, rateLimits, listId, templateId, cadenceDays } = req.body;

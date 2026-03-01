@@ -92,11 +92,15 @@ function SettingsPage() {
   const [protoSteps, setProtoSteps] = useState<string[]>([]);
   const [addStepType, setAddStepType] = useState(VALID_STEP_TYPES[0]);
 
+  // HubSpot lists
+  const [hsLists, setHsLists] = useState<{ listId: string; name: string; type: string; size: number }[]>([]);
+
   useEffect(() => {
     loadActors();
     loadOnboardingStatus();
     loadProtocols();
     loadTemplates();
+    loadLists();
   }, []);
 
   async function loadActors() {
@@ -143,6 +147,18 @@ function SettingsPage() {
       if (res.ok) {
         const data = await res.json();
         setTemplates(data.templates || {});
+      }
+    } catch {
+      // Non-critical
+    }
+  }
+
+  async function loadLists() {
+    try {
+      const res = await hubspot.fetch(`${API_BASE}/api/treatments/lists`, { method: "GET" });
+      if (res.ok) {
+        const data = await res.json();
+        setHsLists(data.lists || []);
       }
     } catch {
       // Non-critical
@@ -299,6 +315,33 @@ function SettingsPage() {
       setAlert({ type: "danger", message: "Network error" });
     } finally {
       setProtocolSaving(false);
+    }
+  }
+
+  async function handleStartProtocol(proto: Protocol) {
+    setAlert(null);
+    try {
+      const res = await hubspot.fetch(`${API_BASE}/api/treatments/initiate`, {
+        method: "POST",
+        body: {
+          protocolId: proto.id,
+          listId: proto.listId,
+        },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setAlert({
+          type: "success",
+          message: `Treatment started: ${data.itemCount} contacts queued (Run: ${data.runId.slice(0, 8)}...)`,
+        });
+        await loadProtocols();
+      } else {
+        const err = await res.json();
+        setAlert({ type: "danger", message: err.error || "Failed to start treatment" });
+      }
+    } catch {
+      setAlert({ type: "danger", message: "Network error" });
     }
   }
 
@@ -503,12 +546,18 @@ function SettingsPage() {
             onInput={setProtoCadenceDays}
             placeholder="1"
           />
-          <Input
-            label="HubSpot List ID (optional)"
+          <Select
+            label="HubSpot List (optional)"
             name="protoListId"
             value={protoListId}
-            onInput={setProtoListId}
-            placeholder="List ID"
+            onChange={setProtoListId}
+            options={[
+              { value: "", label: "None" },
+              ...hsLists.map((l) => ({
+                value: l.listId,
+                label: `${l.name} (${l.size} contacts)`,
+              })),
+            ]}
           />
 
           {/* Steps */}
@@ -566,6 +615,7 @@ function SettingsPage() {
 
       {protocols.map((proto) => {
         const actorName = actors.find((a) => a.id === proto.actorId)?.name || proto.actorId.slice(0, 8);
+        const listName = proto.listId ? hsLists.find((l) => l.listId === proto.listId)?.name || proto.listId : null;
         return (
           <Flex key={proto.id} direction="column" gap="xs">
             <Flex direction="row" justify="between" align="center">
@@ -576,7 +626,7 @@ function SettingsPage() {
             </Flex>
             <Text variant="microcopy">
               Actor: {actorName} | Cadence: {proto.cadenceDays || 1}d | Steps: {proto.steps.length}
-              {proto.listId ? ` | List: ${proto.listId}` : ""}
+              {listName ? ` | List: ${listName}` : ""}
             </Text>
             <Flex direction="row" gap="xs" wrap="wrap">
               {proto.steps.map((s, idx) => (
@@ -586,6 +636,11 @@ function SettingsPage() {
               ))}
             </Flex>
             <Flex direction="row" gap="xs">
+              {proto.listId && (
+                <Button variant="primary" size="xs" onClick={() => handleStartProtocol(proto)}>
+                  Start
+                </Button>
+              )}
               <Button variant="secondary" size="xs" onClick={() => handleEditProtocol(proto)}>
                 Edit
               </Button>

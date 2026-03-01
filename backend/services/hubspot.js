@@ -71,6 +71,22 @@ class HubSpotClient {
 
   // --- List operations ---
 
+  async getLists() {
+    const response = await axios.get(
+      `${HS_API_BASE}/crm/v3/lists`,
+      {
+        headers: this._headers(),
+        params: { count: 250, includeFilters: false },
+      }
+    );
+    return (response.data.lists || []).map(l => ({
+      listId: l.listId,
+      name: l.name,
+      type: l.processingType,
+      size: l.size,
+    }));
+  }
+
   async getListMembers(listId, limit = 100) {
     const response = await axios.get(
       `${HS_API_BASE}/crm/v3/lists/${listId}/memberships`,
