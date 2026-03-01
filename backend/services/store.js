@@ -18,9 +18,14 @@ function getQueueItemsStore() {
   return getStore('queue-items');
 }
 
+function getContactActivityStore() {
+  return getStore('contact-activity');
+}
+
 module.exports = {
   getActorsStore,
   getProtocolsStore,
   getTreatmentRunsStore,
   getQueueItemsStore,
+  getContactActivityStore,
 };

@@ -41,6 +41,9 @@ async function createTreatmentRun(treatmentId, protocol, contactIds, actorId) {
     attempts: 0,
     maxAttempts: 3,
     lastError: null,
+    context: {},
+    stepEnteredAt: new Date().toISOString(),
+    stepHistory: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }));
@@ -73,7 +76,7 @@ async function getNextItems(runId, limit = 5) {
 }
 
 // Update an item's status after processing
-async function updateItemStatus(runId, itemId, status, { stepIncrement = false, error = null } = {}) {
+async function updateItemStatus(runId, itemId, status, { stepIncrement = false, error = null, stepType = null, nextDelayMs = null } = {}) {
   const itemsStore = getQueueItemsStore();
 
   const items = await itemsStore.get(runId, { type: 'json' });
@@ -89,10 +92,22 @@ async function updateItemStatus(runId, itemId, status, { stepIncrement = false, 
   if (error) item.lastError = error;
 
   if (stepIncrement) {
+    // Record completed step in history
+    if (!item.stepHistory) item.stepHistory = [];
+    item.stepHistory.push({
+      step: item.currentStep,
+      type: stepType,
+      enteredAt: item.stepEnteredAt,
+      completedAt: new Date().toISOString(),
+    });
+
     item.currentStep++;
+    item.stepEnteredAt = new Date().toISOString();
+
     if (item.currentStep < item.totalSteps) {
       item.status = STATUSES.PENDING;
-      item.scheduledAfter = new Date(Date.now() + MIN_DELAY_BETWEEN_ACTIONS_MS).toISOString();
+      const delay = nextDelayMs != null ? nextDelayMs : MIN_DELAY_BETWEEN_ACTIONS_MS;
+      item.scheduledAfter = new Date(Date.now() + delay).toISOString();
     }
   }
 

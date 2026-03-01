@@ -3,6 +3,7 @@ const PROTOCOL_TEMPLATES = {
   'linkedin-outreach-enrich': {
     name: 'LinkedIn Outreach + Enrich',
     description: 'Enrich company data, find LinkedIn profile, check connection, send request, enroll in sequence',
+    cadenceDays: 1,
     steps: [
       { type: 'enrich', provider: 'sumble', params: { techGroups: ['sumble_crm_techs', 'sumble_marketing_techs', 'sumble_sfa_techs', 'sumble_sales_techs'] } },
       { type: 'linkedin_search', params: { useProfileUrl: true, fallbackToName: true } },
@@ -14,6 +15,7 @@ const PROTOCOL_TEMPLATES = {
   'enrich-only': {
     name: 'Enrich Only',
     description: 'Enrich company with tech stack and LinkedIn data via Sumble',
+    cadenceDays: 1,
     steps: [
       { type: 'enrich', provider: 'sumble', params: { techGroups: ['sumble_crm_techs', 'sumble_marketing_techs', 'sumble_sfa_techs', 'sumble_sales_techs'] } },
     ],
@@ -21,6 +23,7 @@ const PROTOCOL_TEMPLATES = {
   'linkedin-connect': {
     name: 'LinkedIn Connect',
     description: 'Find LinkedIn profile and send connection request',
+    cadenceDays: 1,
     steps: [
       { type: 'linkedin_search', params: { useProfileUrl: true, fallbackToName: true } },
       { type: 'check_connection', params: {} },
@@ -40,4 +43,7 @@ const VALID_STEP_TYPES = [
   'generate_copy',
 ];
 
-module.exports = { PROTOCOL_TEMPLATES, VALID_STEP_TYPES };
+// Step types that involve messaging (cadence delay applies between these)
+const MESSAGING_STEP_TYPES = ['send_connection_request', 'send_message', 'enroll_sequence'];
+
+module.exports = { PROTOCOL_TEMPLATES, VALID_STEP_TYPES, MESSAGING_STEP_TYPES };

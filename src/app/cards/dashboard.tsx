@@ -7,6 +7,7 @@ import {
   Button,
   LoadingButton,
   LoadingSpinner,
+  Select,
   Tag,
   Heading,
   ProgressBar,
@@ -14,6 +15,23 @@ import {
 } from "@hubspot/ui-extensions";
 
 const API_BASE = "https://gtmorchestrator.netlify.app";
+
+const STEP_LABELS: Record<string, string> = {
+  enrich: "Enrich",
+  linkedin_search: "LinkedIn Search",
+  check_connection: "Check Connection",
+  send_connection_request: "Connect",
+  send_message: "Message",
+  enroll_sequence: "Sequence",
+  generate_copy: "Gen Copy",
+};
+
+interface Protocol {
+  id: string;
+  name: string;
+  steps: { type: string }[];
+  cadenceDays: number;
+}
 
 interface TreatmentRun {
   id: string;
@@ -42,20 +60,29 @@ interface ActorUsage {
 }
 
 hubspot.extend<"crm.record.tab">(({ context, actions }) => (
-  <DashboardCard />
+  <DashboardCard context={context} />
 ));
 
-function DashboardCard() {
+function DashboardCard({ context }: { context: any }) {
   const [treatments, setTreatments] = useState<TreatmentRun[]>([]);
   const [rateLimits, setRateLimits] = useState<Record<string, ActorUsage>>({});
+  const [protocols, setProtocols] = useState<Protocol[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // Initiate treatment state
+  const [selectedProtocolId, setSelectedProtocolId] = useState("");
+  const [initiating, setInitiating] = useState(false);
+  const [initiateAlert, setInitiateAlert] = useState<{ type: "success" | "danger"; message: string } | null>(null);
+
+  const objectId = context?.crm?.objectId;
+
   const loadData = useCallback(async () => {
     try {
-      const [queueRes, limitsRes] = await Promise.all([
+      const [queueRes, limitsRes, protocolsRes] = await Promise.all([
         hubspot.fetch(`${API_BASE}/api/queue/all`, { method: "GET" }),
         hubspot.fetch(`${API_BASE}/api/queue/rate-limits/all`, { method: "GET" }),
+        hubspot.fetch(`${API_BASE}/api/treatments`, { method: "GET" }),
       ]);
 
       if (queueRes.ok) {
@@ -66,6 +93,11 @@ function DashboardCard() {
       if (limitsRes.ok) {
         const limitsData = await limitsRes.json();
         setRateLimits(limitsData.usage || {});
+      }
+
+      if (protocolsRes.ok) {
+        const protoData = await protocolsRes.json();
+        setProtocols(protoData.protocols || []);
       }
     } catch (err: any) {
       setError(err.message || "Failed to load dashboard data");
@@ -88,12 +120,52 @@ function DashboardCard() {
     await loadData();
   }
 
+  async function handleInitiateTreatment() {
+    if (!selectedProtocolId || !objectId) return;
+
+    setInitiating(true);
+    setInitiateAlert(null);
+
+    try {
+      const res = await hubspot.fetch(`${API_BASE}/api/treatments/initiate`, {
+        method: "POST",
+        body: {
+          protocolId: selectedProtocolId,
+          contactIds: [objectId],
+        },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setInitiateAlert({
+          type: "success",
+          message: `Treatment started (Run: ${data.runId.slice(0, 8)}...)`,
+        });
+        setSelectedProtocolId("");
+        await loadData();
+      } else {
+        const err = await res.json();
+        setInitiateAlert({ type: "danger", message: err.error || "Failed to start treatment" });
+      }
+    } catch {
+      setInitiateAlert({ type: "danger", message: "Network error" });
+    } finally {
+      setInitiating(false);
+    }
+  }
+
   if (loading) {
     return <LoadingSpinner label="Loading dashboard..." layout="centered" />;
   }
 
   const activeTreatments = treatments.filter((t) => t.status === "in_progress" || t.status === "paused");
   const completedTreatments = treatments.filter((t) => t.status !== "in_progress" && t.status !== "paused");
+
+  const selectedProtocol = protocols.find((p) => p.id === selectedProtocolId);
+  const protocolOptions = protocols.map((p) => ({
+    value: p.id,
+    label: `${p.name} (${p.steps.length} steps, ${p.cadenceDays || 1}d cadence)`,
+  }));
 
   return (
     <Flex direction="column" gap="md">
@@ -108,6 +180,55 @@ function DashboardCard() {
         <Alert title="Error" variant="danger">
           {error}
         </Alert>
+      )}
+
+      {/* Start Treatment for This Contact */}
+      {objectId && (
+        <>
+          <Text format={{ fontWeight: "bold" }}>Start Treatment for This Contact</Text>
+
+          {initiateAlert && (
+            <Alert
+              title={initiateAlert.type === "success" ? "Done" : "Error"}
+              variant={initiateAlert.type}
+            >
+              {initiateAlert.message}
+            </Alert>
+          )}
+
+          {protocolOptions.length === 0 ? (
+            <Text variant="microcopy">No protocols available. Create one in Settings.</Text>
+          ) : (
+            <Flex direction="column" gap="sm">
+              <Select
+                label="Protocol"
+                name="protocolPicker"
+                value={selectedProtocolId}
+                onChange={setSelectedProtocolId}
+                options={protocolOptions}
+              />
+              {selectedProtocol && (
+                <Flex direction="row" gap="xs" wrap="wrap">
+                  {selectedProtocol.steps.map((s, idx) => (
+                    <Tag key={`${s.type}-${idx}`} variant="default">
+                      {STEP_LABELS[s.type] || s.type}
+                    </Tag>
+                  ))}
+                </Flex>
+              )}
+              <LoadingButton
+                onClick={handleInitiateTreatment}
+                loading={initiating}
+                variant="primary"
+                size="sm"
+                disabled={!selectedProtocolId}
+              >
+                Start Treatment
+              </LoadingButton>
+            </Flex>
+          )}
+          <Divider />
+        </>
       )}
 
       {/* Active treatments */}

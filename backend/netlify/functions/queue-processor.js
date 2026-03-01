@@ -1,14 +1,16 @@
 const { connectLambda } = require('@netlify/blobs');
 const queueManager = require('../../services/queue-manager');
 const rateLimiter = require('../../services/rate-limiter');
+const contactTracker = require('../../services/contact-tracker');
 const unipile = require('../../services/unipile');
 const sumble = require('../../services/sumble');
 const hubspot = require('../../services/hubspot');
 const copyGenerator = require('../../services/copy-generator');
 const { getActorsStore } = require('../../services/store');
+const { MESSAGING_STEP_TYPES } = require('../../config/treatment-protocols');
 
 // Execute a single treatment step on a contact
-async function executeStep(step, contactId, actorId, unipileAccountId) {
+async function executeStep(step, contactId, actorId, unipileAccountId, context) {
   switch (step.type) {
     case 'enrich': {
       if (!hubspot.isConfigured()) throw new Error('HubSpot not configured');
@@ -63,7 +65,7 @@ async function executeStep(step, contactId, actorId, unipileAccountId) {
 
     case 'check_connection': {
       const contact = await hubspot.getContact(contactId, ['hs_linkedin_url']);
-      const providerId = contact.properties?.hs_linkedin_url;
+      const providerId = contact.properties?.hs_linkedin_url || context?.providerId;
       if (!providerId) return { status: 'skipped', reason: 'No LinkedIn profile ID' };
 
       const check = rateLimiter.canPerformAction(actorId, 'profile_views');
@@ -83,12 +85,12 @@ async function executeStep(step, contactId, actorId, unipileAccountId) {
         orch_linkedin_status: isFirstDegree ? 'connected' : profile.network_distance,
       });
 
-      return { status: 'completed', isFirstDegree, networkDistance: profile.network_distance };
+      return { status: 'completed', isFirstDegree, networkDistance: profile.network_distance, providerId };
     }
 
     case 'send_connection_request': {
       const contact = await hubspot.getContact(contactId, ['hs_linkedin_url', 'orch_linkedin_status']);
-      const providerId = contact.properties?.hs_linkedin_url;
+      const providerId = contact.properties?.hs_linkedin_url || context?.providerId;
 
       if (!providerId) return { status: 'skipped', reason: 'No LinkedIn profile ID' };
       if (contact.properties?.orch_linkedin_status === 'connected') {
@@ -100,7 +102,7 @@ async function executeStep(step, contactId, actorId, unipileAccountId) {
         return { status: 'rate_limited', reason: check.reason };
       }
 
-      const message = step.params?.messageTemplate || '';
+      const message = step.params?.messageTemplate || context?.generatedCopy || '';
       await unipile.sendInvite(unipileAccountId, providerId, message);
       rateLimiter.recordAction(actorId, 'connection_requests');
 
@@ -114,7 +116,7 @@ async function executeStep(step, contactId, actorId, unipileAccountId) {
 
     case 'send_message': {
       const contact = await hubspot.getContact(contactId, ['hs_linkedin_url', 'orch_linkedin_status']);
-      const providerId = contact.properties?.hs_linkedin_url;
+      const providerId = contact.properties?.hs_linkedin_url || context?.providerId;
 
       if (!providerId) return { status: 'skipped', reason: 'No LinkedIn profile ID' };
       if (contact.properties?.orch_linkedin_status !== 'connected') {
@@ -126,7 +128,7 @@ async function executeStep(step, contactId, actorId, unipileAccountId) {
         return { status: 'rate_limited', reason: check.reason };
       }
 
-      const message = step.params?.messageTemplate || '';
+      const message = step.params?.messageTemplate || context?.generatedCopy || '';
       await unipile.sendMessage(unipileAccountId, providerId, message);
       rateLimiter.recordAction(actorId, 'messages');
 
@@ -184,15 +186,28 @@ exports.handler = async (event) => {
 
     const items = await queueManager.getNextItems(treatment.id, 5);
 
+    const cadenceDays = treatment.protocol?.cadenceDays || 1;
+    const cadenceMs = cadenceDays * 86400000;
+
     for (const item of items) {
       try {
-        await queueManager.updateItemStatus(treatment.id, item.id, 'in_progress');
-
         const step = treatment.protocol.steps[item.currentStep];
         if (!step) {
           await queueManager.updateItemStatus(treatment.id, item.id, 'completed');
           continue;
         }
+
+        // Check global contact activity for messaging steps
+        const isMessagingStep = MESSAGING_STEP_TYPES.includes(step.type);
+        if (isMessagingStep) {
+          const activityCheck = await contactTracker.canActOnContact(item.contactId, step.type, cadenceMs);
+          if (!activityCheck.allowed) {
+            console.log(`Contact ${item.contactId} skipped: ${activityCheck.reason}`);
+            continue; // Leave as pending, pick up next cycle
+          }
+        }
+
+        await queueManager.updateItemStatus(treatment.id, item.id, 'in_progress');
 
         // Resolve actor: contact owner → owner email → actor
         let actor = null;
@@ -234,14 +249,38 @@ exports.handler = async (event) => {
           }
         }
 
-        const result = await executeStep(step, item.contactId, actorId, unipileAccountId);
+        if (!item.context) item.context = {};
+        const result = await executeStep(step, item.contactId, actorId, unipileAccountId, item.context);
+
+        // Merge result data into item context
+        if (result.providerId) item.context.providerId = result.providerId;
+        if (result.copy) item.context.generatedCopy = result.copy;
+        if (result.data) item.context.enrichmentData = result.data;
 
         if (result.status === 'rate_limited') {
           await queueManager.updateItemStatus(treatment.id, item.id, 'pending');
         } else if (result.status === 'failed') {
           await queueManager.updateItemStatus(treatment.id, item.id, 'failed', { error: result.reason });
         } else {
-          await queueManager.updateItemStatus(treatment.id, item.id, 'completed', { stepIncrement: true });
+          // Calculate delay for next step based on whether it's a messaging step
+          const nextStepIndex = item.currentStep + 1;
+          const nextStep = treatment.protocol.steps[nextStepIndex];
+          const nextIsMessaging = nextStep && MESSAGING_STEP_TYPES.includes(nextStep.type);
+          const nextDelayMs = nextIsMessaging ? cadenceMs : undefined;
+
+          await queueManager.updateItemStatus(treatment.id, item.id, 'completed', {
+            stepIncrement: true,
+            stepType: step.type,
+            nextDelayMs,
+          });
+
+          // Record global contact activity for messaging steps
+          if (isMessagingStep) {
+            await contactTracker.recordContactAction(item.contactId, step.type, {
+              actorId,
+              runId: treatment.id,
+            });
+          }
         }
 
         processedCount++;

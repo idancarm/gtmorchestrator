@@ -14,7 +14,7 @@ router.get('/templates', (req, res) => {
 
 // POST /api/treatments/create - Define a treatment protocol
 router.post('/create', async (req, res) => {
-  const { name, actorId, steps, rateLimits, listId, templateId } = req.body;
+  const { name, actorId, steps, rateLimits, listId, templateId, cadenceDays } = req.body;
 
   if (!name || !actorId) {
     return res.status(400).json({ error: 'name and actorId are required' });
@@ -43,6 +43,7 @@ router.post('/create', async (req, res) => {
       name,
       actorId,
       steps: protocolSteps,
+      cadenceDays: cadenceDays != null ? Number(cadenceDays) : 1,
       rateLimits: rateLimits || {},
       listId: listId || null,
       status: 'draft',
@@ -97,12 +98,13 @@ router.put('/:id', async (req, res) => {
     const protocol = await store.get(req.params.id, { type: 'json' });
     if (!protocol) return res.status(404).json({ error: 'Protocol not found' });
 
-    const { name, actorId, steps, rateLimits, listId } = req.body;
+    const { name, actorId, steps, rateLimits, listId, cadenceDays } = req.body;
     if (name) protocol.name = name;
     if (actorId) protocol.actorId = actorId;
     if (steps) protocol.steps = steps;
     if (rateLimits) protocol.rateLimits = rateLimits;
     if (listId !== undefined) protocol.listId = listId;
+    if (cadenceDays != null) protocol.cadenceDays = Number(cadenceDays);
     protocol.updatedAt = new Date().toISOString();
 
     await store.setJSON(protocol.id, protocol);
@@ -110,6 +112,21 @@ router.put('/:id', async (req, res) => {
   } catch (error) {
     console.error('Update protocol error:', error.message);
     res.status(500).json({ error: 'Failed to update protocol', details: error.message });
+  }
+});
+
+// DELETE /api/treatments/:id - Delete a protocol
+router.delete('/:id', async (req, res) => {
+  try {
+    const store = getProtocolsStore();
+    const protocol = await store.get(req.params.id, { type: 'json' });
+    if (!protocol) return res.status(404).json({ error: 'Protocol not found' });
+
+    await store.delete(req.params.id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete protocol error:', error.message);
+    res.status(500).json({ error: 'Failed to delete protocol', details: error.message });
   }
 });
 
