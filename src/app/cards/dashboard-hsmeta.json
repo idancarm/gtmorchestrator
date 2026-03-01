@@ -1,0 +1,11 @@
+{
+  "uid": "orchestrator_dashboard_card",
+  "type": "card",
+  "config": {
+    "name": "Orchestrator Dashboard",
+    "description": "View treatment progress, rate limits, queue status, and manage automation.",
+    "entrypoint": "/app/cards/dashboard.tsx",
+    "location": "crm.record.tab",
+    "objectTypes": ["CONTACT"]
+  }
+}

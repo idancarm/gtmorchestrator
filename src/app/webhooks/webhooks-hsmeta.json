@@ -1,0 +1,7 @@
+{
+  "uid": "orchestrator_webhooks",
+  "type": "webhooks",
+  "config": {
+    "webhooks": []
+  }
+}

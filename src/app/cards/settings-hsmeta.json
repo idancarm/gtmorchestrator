@@ -1,0 +1,11 @@
+{
+  "uid": "orchestrator_settings_card",
+  "type": "card",
+  "config": {
+    "name": "Orchestrator Settings",
+    "description": "Manage actors, conductor settings, and integration configuration.",
+    "entrypoint": "/app/cards/settings.tsx",
+    "location": "crm.record.tab",
+    "objectTypes": ["CONTACT"]
+  }
+}

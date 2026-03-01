@@ -1,0 +1,11 @@
+{
+  "uid": "orchestrator_treatment_status_card",
+  "type": "card",
+  "config": {
+    "name": "Treatment Status",
+    "description": "View treatment progress, LinkedIn status, and enrichment data for this contact.",
+    "entrypoint": "/app/cards/treatment-status.tsx",
+    "location": "crm.record.sidebar",
+    "objectTypes": ["CONTACT"]
+  }
+}

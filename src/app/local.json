@@ -1,0 +1,5 @@
+{
+  "proxy": {
+    "https://orchestrator-backend.netlify.app": "http://localhost:8080"
+  }
+}
