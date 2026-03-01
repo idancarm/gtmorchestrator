@@ -2,6 +2,14 @@
   "uid": "orchestrator_webhooks",
   "type": "webhooks",
   "config": {
-    "webhooks": []
+    "settings": {
+      "targetUrl": "https://gtmorchestrator.netlify.app/api/webhooks",
+      "maxConcurrentRequests": 10
+    },
+    "subscriptions": {
+      "crmObjects": [],
+      "legacyCrmObjects": [],
+      "hubEvents": []
+    }
   }
 }
