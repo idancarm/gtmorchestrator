@@ -36,7 +36,7 @@ async function executeStep(step, contactId, actorId, unipileAccountId, context) 
       const contact = await hubspot.getContact(contactId, ['firstname', 'lastname', 'company', 'hs_linkedin_url']);
       const props = contact.properties || {};
 
-      if (step.params?.useProfileUrl && props.hs_linkedin_url) {
+      if (props.hs_linkedin_url) {
         return { status: 'completed', providerId: props.hs_linkedin_url };
       }
 
