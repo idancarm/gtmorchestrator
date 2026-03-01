@@ -17,7 +17,7 @@
       ]
     },
     "permittedUrls": {
-      "fetch": ["https://orchestrator-backend.netlify.app"],
+      "fetch": ["https://gtmorchestrator.netlify.app"],
       "iframe": [],
       "img": ["https://media.licdn.com"]
     },

@@ -11,7 +11,7 @@ import {
 } from "@hubspot/ui-extensions";
 import { useExtensionContext, useExtensionActions } from "@hubspot/ui-extensions";
 
-const API_BASE = "https://orchestrator-backend.netlify.app";
+const API_BASE = "https://gtmorchestrator.netlify.app";
 
 const ORCH_PROPERTIES = [
   "orch_treatment_status",

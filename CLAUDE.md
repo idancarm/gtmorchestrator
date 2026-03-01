@@ -19,7 +19,7 @@ Backend system that automates GTM operations through HubSpot, integrating with U
 ## Development
 - Backend: `cd backend && npm start` (local) or `npx netlify dev`
 - HubSpot: `hs project dev` from root
-- Backend URL (production): https://orchestrator-backend.netlify.app
+- Backend URL (production): https://gtmorchestrator.netlify.app
 - Backend URL (local): http://localhost:8080
 
 ## Conventions

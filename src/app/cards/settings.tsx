@@ -15,7 +15,7 @@ import {
   hubspot,
 } from "@hubspot/ui-extensions";
 
-const API_BASE = "https://orchestrator-backend.netlify.app";
+const API_BASE = "https://gtmorchestrator.netlify.app";
 
 interface Actor {
   id: string;
