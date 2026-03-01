@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import {
   Text,
   Flex,
-  Box,
   Divider,
   Alert,
   Button,
@@ -27,11 +26,9 @@ interface Actor {
   createdAt: string;
 }
 
-hubspot.extend<"crm.record.tab">(({ context, actions }) => (
-  <SettingsCard />
-));
+hubspot.extend<"settings">(({ actions }) => <SettingsPage />);
 
-function SettingsCard() {
+function SettingsPage() {
   const [actors, setActors] = useState<Actor[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -137,7 +134,6 @@ function SettingsCard() {
     try {
       const res = await hubspot.fetch(`${API_BASE}/api/onboarding/setup-all`, { method: "POST" });
       if (res.ok) {
-        const data = await res.json();
         setAlert({ type: "success", message: "Properties and integrations configured" });
         await loadOnboardingStatus();
       } else {
@@ -207,7 +203,13 @@ function SettingsCard() {
       {showForm && (
         <Flex direction="column" gap="sm">
           <Input label="Name" name="name" value={newName} onInput={setNewName} placeholder="John Doe" />
-          <Input label="Email" name="email" value={newEmail} onInput={setNewEmail} placeholder="john@company.com" />
+          <Input
+            label="Email (must match HubSpot owner email)"
+            name="email"
+            value={newEmail}
+            onInput={setNewEmail}
+            placeholder="john@company.com"
+          />
           <Input
             label="Unipile Account ID"
             name="unipileId"
