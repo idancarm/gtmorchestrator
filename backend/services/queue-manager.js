@@ -1,10 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
 const { MIN_DELAY_BETWEEN_ACTIONS_MS } = require('../config/rate-limits');
-
-// In-memory queue storage
-// In production, use Netlify Blobs or a database
-const treatments = {};  // treatmentId -> treatment metadata
-const queueItems = {};  // treatmentId -> [{ id, contactId, step, status, ... }]
+const { getTreatmentRunsStore, getQueueItemsStore } = require('./store');
 
 const STATUSES = {
   PENDING: 'pending',
@@ -16,10 +12,12 @@ const STATUSES = {
 };
 
 // Create a treatment run and queue all items
-function createTreatmentRun(treatmentId, protocol, contactIds, actorId) {
+async function createTreatmentRun(treatmentId, protocol, contactIds, actorId) {
+  const runsStore = getTreatmentRunsStore();
+  const itemsStore = getQueueItemsStore();
   const runId = uuidv4();
 
-  treatments[runId] = {
+  const run = {
     id: runId,
     treatmentId,
     protocol,
@@ -29,14 +27,16 @@ function createTreatmentRun(treatmentId, protocol, contactIds, actorId) {
     createdAt: new Date().toISOString(),
   };
 
-  queueItems[runId] = contactIds.map((contactId, index) => ({
+  await runsStore.setJSON(runId, run);
+
+  // Store items as a single blob keyed by runId
+  const items = contactIds.map((contactId, index) => ({
     id: uuidv4(),
     runId,
     contactId,
     currentStep: 0,
     totalSteps: protocol.steps.length,
     status: STATUSES.PENDING,
-    // Stagger items to respect rate limits
     scheduledAfter: new Date(Date.now() + index * MIN_DELAY_BETWEEN_ACTIONS_MS).toISOString(),
     attempts: 0,
     maxAttempts: 3,
@@ -45,16 +45,21 @@ function createTreatmentRun(treatmentId, protocol, contactIds, actorId) {
     updatedAt: new Date().toISOString(),
   }));
 
+  await itemsStore.setJSON(runId, items);
+
   return { runId, itemCount: contactIds.length };
 }
 
 // Get next eligible items for processing
-function getNextItems(runId, limit = 5) {
-  const items = queueItems[runId];
-  if (!items) return [];
+async function getNextItems(runId, limit = 5) {
+  const runsStore = getTreatmentRunsStore();
+  const itemsStore = getQueueItemsStore();
 
-  const treatment = treatments[runId];
+  const treatment = await runsStore.get(runId, { type: 'json' });
   if (!treatment || treatment.status === STATUSES.PAUSED) return [];
+
+  const items = await itemsStore.get(runId, { type: 'json' });
+  if (!items) return [];
 
   const now = new Date().toISOString();
 
@@ -68,8 +73,10 @@ function getNextItems(runId, limit = 5) {
 }
 
 // Update an item's status after processing
-function updateItemStatus(runId, itemId, status, { stepIncrement = false, error = null } = {}) {
-  const items = queueItems[runId];
+async function updateItemStatus(runId, itemId, status, { stepIncrement = false, error = null } = {}) {
+  const itemsStore = getQueueItemsStore();
+
+  const items = await itemsStore.get(runId, { type: 'json' });
   if (!items) return null;
 
   const item = items.find(i => i.id === itemId);
@@ -83,36 +90,37 @@ function updateItemStatus(runId, itemId, status, { stepIncrement = false, error 
 
   if (stepIncrement) {
     item.currentStep++;
-    // If more steps remain, reset to pending
     if (item.currentStep < item.totalSteps) {
       item.status = STATUSES.PENDING;
       item.scheduledAfter = new Date(Date.now() + MIN_DELAY_BETWEEN_ACTIONS_MS).toISOString();
     }
   }
 
+  await itemsStore.setJSON(runId, items);
   return item;
 }
 
 // Pause/resume a treatment run
-function setTreatmentStatus(runId, status) {
-  if (!treatments[runId]) return null;
-  treatments[runId].status = status;
-  return treatments[runId];
+async function setTreatmentStatus(runId, status) {
+  const runsStore = getTreatmentRunsStore();
+  const treatment = await runsStore.get(runId, { type: 'json' });
+  if (!treatment) return null;
+
+  treatment.status = status;
+  await runsStore.setJSON(runId, treatment);
+  return treatment;
 }
 
 // Get treatment run status with progress
-function getTreatmentStatus(runId) {
-  const treatment = treatments[runId];
+async function getTreatmentStatus(runId) {
+  const runsStore = getTreatmentRunsStore();
+  const itemsStore = getQueueItemsStore();
+
+  const treatment = await runsStore.get(runId, { type: 'json' });
   if (!treatment) return null;
 
-  const items = queueItems[runId] || [];
-  const counts = {
-    pending: 0,
-    in_progress: 0,
-    completed: 0,
-    failed: 0,
-    skipped: 0,
-  };
+  const items = await itemsStore.get(runId, { type: 'json' }) || [];
+  const counts = { pending: 0, in_progress: 0, completed: 0, failed: 0, skipped: 0 };
 
   for (const item of items) {
     if (counts[item.status] !== undefined) counts[item.status]++;
@@ -129,15 +137,33 @@ function getTreatmentStatus(runId) {
 }
 
 // Get all active treatment runs
-function getActiveTreatments() {
-  return Object.values(treatments)
-    .filter(t => t.status === STATUSES.IN_PROGRESS || t.status === STATUSES.PAUSED)
-    .map(t => getTreatmentStatus(t.id));
+async function getActiveTreatments() {
+  const runsStore = getTreatmentRunsStore();
+  const { blobs } = await runsStore.list();
+  const active = [];
+
+  for (const entry of blobs) {
+    const status = await getTreatmentStatus(entry.key);
+    if (status && (status.status === STATUSES.IN_PROGRESS || status.status === STATUSES.PAUSED)) {
+      active.push(status);
+    }
+  }
+
+  return active;
 }
 
 // Get all treatment runs
-function getAllTreatments() {
-  return Object.values(treatments).map(t => getTreatmentStatus(t.id));
+async function getAllTreatments() {
+  const runsStore = getTreatmentRunsStore();
+  const { blobs } = await runsStore.list();
+  const all = [];
+
+  for (const entry of blobs) {
+    const status = await getTreatmentStatus(entry.key);
+    if (status) all.push(status);
+  }
+
+  return all;
 }
 
 module.exports = {

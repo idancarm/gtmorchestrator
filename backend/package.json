@@ -8,6 +8,7 @@
     "dev": "npx netlify dev"
   },
   "dependencies": {
+    "@netlify/blobs": "^10.7.0",
     "axios": "^1.6.0",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",

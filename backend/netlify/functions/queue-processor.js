@@ -1,9 +1,11 @@
+const { connectLambda } = require('@netlify/blobs');
 const queueManager = require('../../services/queue-manager');
 const rateLimiter = require('../../services/rate-limiter');
 const unipile = require('../../services/unipile');
 const sumble = require('../../services/sumble');
 const hubspot = require('../../services/hubspot');
 const copyGenerator = require('../../services/copy-generator');
+const { getActorsStore } = require('../../services/store');
 
 // Execute a single treatment step on a contact
 async function executeStep(step, contactId, actorId, unipileAccountId) {
@@ -20,7 +22,6 @@ async function executeStep(step, contactId, actorId, unipileAccountId) {
 
       const result = await sumble.enrichOrganization(company, null, step.params?.techGroups);
 
-      // Write enrichment data back
       await hubspot.updateContact(contactId, {
         orch_enrichment_status: 'completed',
         orch_last_processed: new Date().toISOString(),
@@ -33,12 +34,10 @@ async function executeStep(step, contactId, actorId, unipileAccountId) {
       const contact = await hubspot.getContact(contactId, ['firstname', 'lastname', 'company', 'hs_linkedin_url']);
       const props = contact.properties || {};
 
-      // Check if we already have a LinkedIn URL
       if (step.params?.useProfileUrl && props.hs_linkedin_url) {
         return { status: 'completed', providerId: props.hs_linkedin_url };
       }
 
-      // Search by name
       if (!props.firstname && !props.lastname) {
         return { status: 'skipped', reason: 'No name available for search' };
       }
@@ -173,47 +172,47 @@ async function executeStep(step, contactId, actorId, unipileAccountId) {
 
 // Scheduled function handler - runs every 5 minutes
 exports.handler = async (event) => {
+  connectLambda(event);
+
   console.log('Queue processor running at', new Date().toISOString());
 
-  const activeTreatments = queueManager.getActiveTreatments();
+  const activeTreatments = await queueManager.getActiveTreatments();
   let processedCount = 0;
 
   for (const treatment of activeTreatments) {
     if (treatment.status === 'paused') continue;
 
-    const items = queueManager.getNextItems(treatment.id, 5);
+    const items = await queueManager.getNextItems(treatment.id, 5);
 
     for (const item of items) {
       try {
-        queueManager.updateItemStatus(treatment.id, item.id, 'in_progress');
+        await queueManager.updateItemStatus(treatment.id, item.id, 'in_progress');
 
         const step = treatment.protocol.steps[item.currentStep];
         if (!step) {
-          queueManager.updateItemStatus(treatment.id, item.id, 'completed');
+          await queueManager.updateItemStatus(treatment.id, item.id, 'completed');
           continue;
         }
 
-        // Get actor's Unipile account ID
-        const actorsRoute = require('../../routes/actors');
-        const actor = actorsRoute.getActor(treatment.actorId);
+        // Get actor's Unipile account ID from blob store
+        const actorsStore = getActorsStore();
+        const actor = await actorsStore.get(treatment.actorId, { type: 'json' });
         const unipileAccountId = actor?.unipileAccountId || treatment.actorId;
 
         const result = await executeStep(step, item.contactId, treatment.actorId, unipileAccountId);
 
         if (result.status === 'rate_limited') {
-          // Re-queue with delay
-          queueManager.updateItemStatus(treatment.id, item.id, 'pending');
+          await queueManager.updateItemStatus(treatment.id, item.id, 'pending');
         } else if (result.status === 'failed') {
-          queueManager.updateItemStatus(treatment.id, item.id, 'failed', { error: result.reason });
+          await queueManager.updateItemStatus(treatment.id, item.id, 'failed', { error: result.reason });
         } else {
-          // completed or skipped — advance to next step
-          queueManager.updateItemStatus(treatment.id, item.id, 'completed', { stepIncrement: true });
+          await queueManager.updateItemStatus(treatment.id, item.id, 'completed', { stepIncrement: true });
         }
 
         processedCount++;
       } catch (error) {
         console.error(`Queue item ${item.id} failed:`, error.message);
-        queueManager.updateItemStatus(treatment.id, item.id, 'failed', { error: error.message });
+        await queueManager.updateItemStatus(treatment.id, item.id, 'failed', { error: error.message });
       }
     }
   }
