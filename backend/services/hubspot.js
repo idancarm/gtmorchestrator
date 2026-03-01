@@ -72,20 +72,36 @@ class HubSpotClient {
   // --- List operations ---
 
   async getLists() {
-    const response = await axios.get(
-      `${HS_API_BASE}/crm/v3/lists`,
-      {
-        headers: this._headers(),
-        params: { includeFilters: false },
+    const allLists = [];
+    let offset = 0;
+
+    // POST /crm/v3/lists/search with empty query returns all lists
+    while (true) {
+      const response = await axios.post(
+        `${HS_API_BASE}/crm/v3/lists/search`,
+        {
+          query: '',
+          count: 100,
+          offset,
+        },
+        { headers: this._headers() }
+      );
+
+      const lists = response.data.lists || [];
+      for (const l of lists) {
+        allLists.push({
+          listId: String(l.listId),
+          name: l.name,
+          type: l.processingType,
+          size: l.size || 0,
+        });
       }
-    );
-    const lists = response.data.lists || response.data.results || [];
-    return lists.map(l => ({
-      listId: String(l.listId),
-      name: l.name,
-      type: l.processingType,
-      size: l.size || 0,
-    }));
+
+      if (!response.data.hasMore || lists.length === 0) break;
+      offset = response.data.offset;
+    }
+
+    return allLists;
   }
 
   async getListMembers(listId, limit = 100) {

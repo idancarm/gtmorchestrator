@@ -26,19 +26,6 @@ router.get('/lists', async (req, res) => {
   }
 });
 
-// DEBUG: raw HubSpot lists response (temporary)
-router.get('/lists-debug', async (req, res) => {
-  try {
-    const axios = require('axios');
-    const response = await axios.get('https://api.hubapi.com/crm/v3/lists', {
-      headers: { 'Authorization': `Bearer ${process.env.HUBSPOT_ACCESS_TOKEN}` },
-      params: { includeFilters: false },
-    });
-    res.json({ keys: Object.keys(response.data), raw: JSON.stringify(response.data).slice(0, 2000) });
-  } catch (error) {
-    res.status(500).json({ error: error.message, data: error.response?.data });
-  }
-});
 
 // POST /api/treatments/create - Define a treatment protocol
 router.post('/create', async (req, res) => {
