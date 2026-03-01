@@ -5,6 +5,8 @@ const HS_API_BASE = 'https://api.hubapi.com';
 class HubSpotClient {
   constructor() {
     this.token = process.env.HUBSPOT_ACCESS_TOKEN;
+    this._ownerCache = {}; // ownerId -> { data, cachedAt }
+    this._ownerCacheTTL = 10 * 60 * 1000; // 10 minutes
   }
 
   _headers() {
@@ -78,6 +80,31 @@ class HubSpotClient {
       }
     );
     return response.data;
+  }
+
+  // --- Owner operations ---
+
+  async getOwner(ownerId) {
+    // Check cache first
+    const cached = this._ownerCache[ownerId];
+    if (cached && (Date.now() - cached.cachedAt) < this._ownerCacheTTL) {
+      return cached.data;
+    }
+
+    const response = await axios.get(
+      `${HS_API_BASE}/crm/v3/owners/${ownerId}`,
+      { headers: this._headers() }
+    );
+
+    this._ownerCache[ownerId] = { data: response.data, cachedAt: Date.now() };
+    return response.data;
+  }
+
+  // Resolve a record's owner to their email
+  async getOwnerEmail(ownerId) {
+    if (!ownerId) return null;
+    const owner = await this.getOwner(ownerId);
+    return owner?.email || null;
   }
 
   // --- Property setup ---

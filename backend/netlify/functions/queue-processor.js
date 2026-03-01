@@ -194,12 +194,47 @@ exports.handler = async (event) => {
           continue;
         }
 
-        // Get actor's Unipile account ID from blob store
-        const actorsStore = getActorsStore();
-        const actor = await actorsStore.get(treatment.actorId, { type: 'json' });
-        const unipileAccountId = actor?.unipileAccountId || treatment.actorId;
+        // Resolve actor: contact owner → owner email → actor
+        let actor = null;
+        let actorId = treatment.actorId;
+        let unipileAccountId = treatment.actorId;
 
-        const result = await executeStep(step, item.contactId, treatment.actorId, unipileAccountId);
+        // Try to resolve from contact's HubSpot owner
+        try {
+          const contact = await hubspot.getContact(item.contactId, ['hubspot_owner_id']);
+          const ownerId = contact.properties?.hubspot_owner_id;
+
+          if (ownerId) {
+            const ownerEmail = await hubspot.getOwnerEmail(ownerId);
+            if (ownerEmail) {
+              // Find actor by owner email
+              const actorsStore = getActorsStore();
+              const { blobs } = await actorsStore.list();
+              for (const entry of blobs) {
+                const a = await actorsStore.get(entry.key, { type: 'json' });
+                if (a && a.email.toLowerCase() === ownerEmail.toLowerCase()) {
+                  actor = a;
+                  actorId = a.id;
+                  unipileAccountId = a.unipileAccountId;
+                  break;
+                }
+              }
+            }
+          }
+        } catch (ownerErr) {
+          console.warn(`Owner resolution failed for contact ${item.contactId}:`, ownerErr.message);
+        }
+
+        // Fallback: use treatment-level actorId
+        if (!actor) {
+          const actorsStore = getActorsStore();
+          actor = await actorsStore.get(treatment.actorId, { type: 'json' });
+          if (actor) {
+            unipileAccountId = actor.unipileAccountId;
+          }
+        }
+
+        const result = await executeStep(step, item.contactId, actorId, unipileAccountId);
 
         if (result.status === 'rate_limited') {
           await queueManager.updateItemStatus(treatment.id, item.id, 'pending');

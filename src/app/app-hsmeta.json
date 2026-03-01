@@ -13,7 +13,8 @@
         "crm.objects.contacts.write",
         "crm.objects.companies.read",
         "crm.objects.companies.write",
-        "crm.lists.read"
+        "crm.lists.read",
+        "crm.objects.owners.read"
       ]
     },
     "permittedUrls": {
